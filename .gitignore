@@ -1,0 +1,6 @@
+*.beam
+*.*~
+.couchapprc
+deps/*
+*.dump
+doc/*

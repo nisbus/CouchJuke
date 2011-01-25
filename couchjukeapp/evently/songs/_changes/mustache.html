@@ -1,0 +1,11 @@
+<p>Customize this format here: <tt>ddoc.evently.songs._changes.mustache</tt></p>
+<h3>Most recently added songs</h3>
+<ul>
+  {{#songs}}
+    <li onclick="add_to_playlist('{{title}}','{{song}}', '{{cover}}');">
+      <div>
+       {{title}}
+      </div>
+    </li>
+  {{/songs}}
+</ul>
