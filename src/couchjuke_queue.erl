@@ -89,8 +89,13 @@ handle_cast({done,File}, State) ->
 	    _P = spawn_link(couch_juke_crawler, mp3, [{mp3,F},State#state.db]),
 	    {noreply, NewState#state{running = [F|NewState#state.running], pending = lists:delete(F,NewState#state.pending)}};
 	false ->
-	    io:format("Done!!!~n"),
-	    {noreply, NewState}
+	    case count(NewState#state.running) == 0 of
+		true ->
+		    {noreply, NewState};
+		false ->
+		    io:format("Done!!!~n"),
+		    {noreply, NewState}
+	    end
     end;
 
 handle_cast({add, File, Db}, State) ->

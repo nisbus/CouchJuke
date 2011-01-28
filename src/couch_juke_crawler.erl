@@ -13,7 +13,8 @@
 	 get_cover/1,
 	 create_music_record/1, 
 	 get_track_no/1,
-	 get_track_name/1]).
+	 get_track_name/1,
+	get_timestamp/0]).
 
 -include_lib("eunit/include/eunit.hrl").
 %%====================================================================
@@ -147,10 +148,10 @@ create_music_record(File) when is_binary(File) ->
     TrackNo = get_track_no(FileName),
     case TrackNo of
 	not_found ->
-	    {[generate_id(FileName, Artist, Album),{title, FileName},{album, Album},{artist,Artist},{track_no, 0}]};
+	    {[generate_id(FileName, Artist, Album),{title, FileName},{album, Album},{artist,Artist},{track_no, 0},{timestamp,get_timestamp()}]};
 	_ ->
 	    TrackName = get_track_name(FileName),
-	    {[generate_id(TrackName, Artist, Album),{title, TrackName},{album, Album},{artist,Artist},{track_no, drop_trailing_zeroes(TrackNo)}]}
+	    {[generate_id(TrackName, Artist, Album),{title, TrackName},{album, Album},{artist,Artist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
     end;
 
 create_music_record(File) -> 
@@ -166,6 +167,12 @@ remove_file_extension(File) ->
 	[_H|_T] ->
 	    File
     end.
+
+get_timestamp() ->
+    {{Year,Month,Day},{Hour, Minute, Second}} =erlang:localtime_to_universaltime(erlang:localtime()),
+   TS =  integer_to_list(Year)++"-"++string:right(integer_to_list(Month),2,$0)++"-"++string:right(integer_to_list(Day),2,$0)++" "++string:right(integer_to_list(Hour),2,$0)++":"++string:right(integer_to_list(Minute),2,$0)++":"++integer_to_list(Second),
+    list_to_binary(TS).
+
 
 get_track_no(<<"(",No:2/binary,") - ",_/binary>>) ->
     No;
