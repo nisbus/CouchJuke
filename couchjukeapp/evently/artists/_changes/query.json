@@ -1,0 +1,5 @@
+{
+  "view" : "artists",
+  "descending" : "true",
+  "limit" : 50
+}
