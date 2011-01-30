@@ -11,6 +11,8 @@
       $.evently.connect("#account","#profile", ["loggedIn","loggedOut"]);
       $("#items").evently("items", app);
       $("#songs").evently("songs",app);
+      $("#artists").evently("artists",app);
+      $("#albums").evently("albums",app);
       });
     </script>
     <script type="text/javascript" charset="utf-8">
@@ -37,5 +39,7 @@
     <div id="songs"></div>
     <div id="playlist">
     </div>
+    <div id="artists"></div>
+    <div id="albums"></div>
   </body>
 </html>
