@@ -14,7 +14,7 @@
 	 create_music_record/1, 
 	 get_track_no/1,
 	 get_track_name/1,
-	get_timestamp/0]).
+	 get_timestamp/0]).
 
 -include_lib("eunit/include/eunit.hrl").
 %%====================================================================
@@ -76,10 +76,12 @@ mp3({mp3, File},Db) ->
     %% Tag = id3_v1:read_id3_tag(File),
     %% case Tag of 
     %% 	not_found ->
+    io:format("Processing ~p~n",[File]),
     R = create_music_record(File),
     %% 	    save({Db, R, File});
     %% 	_ ->
     %R = get_music_record(Tag),
+    io:format("Saving ~p~n",[R]),
     save({Db, R, File}),
 %    end,
     couchjuke_queue:done(File).
@@ -146,12 +148,15 @@ create_music_record(File) when is_binary(File) ->
     [Album|Res] = Rest,
     [Artist|_Ignore] = Res,
     TrackNo = get_track_no(FileName),
+    UFile = unicode:characters_to_binary(binary_to_list(FileName)),
+    UAlbum = unicode:characters_to_binary(binary_to_list(Album)),
+    UArtist = unicode:characters_to_binary(binary_to_list(Artist)),
     case TrackNo of
 	not_found ->
-	    {[generate_id(FileName, Artist, Album),{title, FileName},{album, Album},{artist,Artist},{track_no, 0},{timestamp,get_timestamp()}]};
+	    {[generate_id(UFile, UArtist, UAlbum),{title, UFile},{album, UAlbum},{artist,UArtist},{track_no, 0},{timestamp,get_timestamp()}]};
 	_ ->
-	    TrackName = get_track_name(FileName),
-	    {[generate_id(TrackName, Artist, Album),{title, TrackName},{album, Album},{artist,Artist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
+	    TrackName = get_track_name(UFile),
+	    {[generate_id(TrackName, UArtist, UAlbum),{title, TrackName},{album, UAlbum},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
     end;
 
 create_music_record(File) -> 
@@ -186,8 +191,10 @@ generate_id(Title, Artist, Album) ->
 
 get_track_name(<<"(",_No:2/binary,") - ",FileName/binary>>) ->
     FileName;
+    
 get_track_name(<<_No:2/binary," - ",FileName/binary>>) ->
     FileName;
+
 get_track_name(FileName) ->
     FileName.
 
@@ -229,3 +236,10 @@ parse_string_path_track_wo_track_no_test() ->
     TestPath = "/home/nisbus/Music/nisbus/lowercase/lullabyte.mp3",
     Record = create_music_record(TestPath),
     ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
+
+utf8_test() ->
+    TestString = "d:/shares/Music/Úlpa/mea culpa/11 - Skúrærur & þumli (bonus).mp3",
+    U = unicode:characters_to_binary(TestString),
+    R = {[{<<id>>, Id},{title, TrackName},{album, Album},{artist,Artist},{track_no, TrackNo}, {timestamp,Timestamp}]} = create_music_record(U),
+    T = binary_to_list(TrackName),
+    io:format(user,"Result = ~p, ~p~n",[R, T]).
