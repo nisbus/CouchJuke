@@ -14,7 +14,8 @@
 	 create_music_record/1, 
 	 get_track_no/1,
 	 get_track_name/1,
-	 get_timestamp/0]).
+	 get_timestamp/0,
+	 save_inline/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 %%====================================================================
@@ -76,12 +77,10 @@ mp3({mp3, File},Db) ->
     %% Tag = id3_v1:read_id3_tag(File),
     %% case Tag of 
     %% 	not_found ->
-    io:format("Processing ~p~n",[File]),
     R = create_music_record(File),
     %% 	    save({Db, R, File});
     %% 	_ ->
     %R = get_music_record(Tag),
-    io:format("Saving ~p~n",[R]),
     save({Db, R, File}),
 %    end,
     couchjuke_queue:done(File).
@@ -95,19 +94,27 @@ mp3({mp3, File},Db) ->
 %%======================================================================
 save({Db, Record,File}) ->
     {ok, Fd} = file:read_file(File),
-    {ok,Doc} = couchbeam:save_doc(Db, Record),
-    Id = couchbeam_doc:get_id(Doc),
-    Rev = couchbeam_doc:get_rev(Doc),
-    Length = filelib:file_size(File),
-    {ok, {NewDoc}} = couchbeam:put_attachment(Db, Id, "song", Fd, [{rev, Rev},{content_type, "audio/mp3"}, {content_length, Length}]),
-    {<<"rev">>, NewRev} = hd(lists:reverse(NewDoc)), 
-    case get_cover(File) of
-	[] ->
-	    void;
-	[H|_T] ->
-	    {ok, Cover} = file:read_file(H),
-	    CoverLength = filelib:file_size(H),
-	    _CoverAtt = couchbeam:put_attachment(Db, Id, "cover", Cover, [{rev, NewRev},{content_type, "image/jpg"}, {content_length, CoverLength}])
+    case couchbeam:save_doc(Db, Record) of
+	{ok,Doc} ->
+	    Id = couchbeam_doc:get_id(Doc),
+	    Rev = couchbeam_doc:get_rev(Doc),
+	    Length = filelib:file_size(File),
+	    {ok, {NewDoc}} = couchbeam:put_attachment(Db, Id, "song", Fd, [{rev, Rev},{content_type, "audio/mp3"}, {content_length, Length}]),
+	    {<<"rev">>, NewRev} = hd(lists:reverse(NewDoc)), 
+	    case get_cover(File) of
+		[] ->
+		    void;
+		[H|_T] ->
+		    {ok, Cover} = file:read_file(H),
+		    CoverLength = filelib:file_size(H),
+		    _CoverAtt = couchbeam:put_attachment(Db, Id, "cover", Cover, [{rev, NewRev},{content_type, "image/jpg"}, {content_length, CoverLength}])
+	    end;
+	{error,conflict} ->
+	    io:format("File already exists ~n"),
+	    ok;
+	{error, Reason} ->
+	    io:format("Error saving file ~p, ~p~n",[File,Reason]),
+	    stop
     end.
 
 %%======================================================================
@@ -236,10 +243,3 @@ parse_string_path_track_wo_track_no_test() ->
     TestPath = "/home/nisbus/Music/nisbus/lowercase/lullabyte.mp3",
     Record = create_music_record(TestPath),
     ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
-
-utf8_test() ->
-    TestString = "d:/shares/Music/Úlpa/mea culpa/11 - Skúrærur & þumli (bonus).mp3",
-    U = unicode:characters_to_binary(TestString),
-    R = {[{<<id>>, Id},{title, TrackName},{album, Album},{artist,Artist},{track_no, TrackNo}, {timestamp,Timestamp}]} = create_music_record(U),
-    T = binary_to_list(TrackName),
-    io:format(user,"Result = ~p, ~p~n",[R, T]).
