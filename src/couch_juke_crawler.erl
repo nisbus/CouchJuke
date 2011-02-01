@@ -167,7 +167,7 @@ create_music_record(File) when is_binary(File) ->
     end;
 
 create_music_record(File) -> 
-    create_music_record(list_to_binary(File)).
+    create_music_record(unicode:characters_to_binary(File)).
 
 remove_file_extension(File) ->
     FileAsString = binary_to_list(File),
@@ -243,3 +243,4 @@ parse_string_path_track_wo_track_no_test() ->
     TestPath = "/home/nisbus/Music/nisbus/lowercase/lullabyte.mp3",
     Record = create_music_record(TestPath),
     ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
+
