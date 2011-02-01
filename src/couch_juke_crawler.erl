@@ -81,7 +81,7 @@ mp3({mp3, File},Db) ->
     %% 	    save({Db, R, File});
     %% 	_ ->
     %R = get_music_record(Tag),
-    save({Db, R, File}),
+    save_music({Db, R, File}),
 %    end,
     couchjuke_queue:done(File).
 
@@ -92,7 +92,7 @@ mp3({mp3, File},Db) ->
 %%      Also searches the files directory for a .jpg file and if it finds one, saves it as the cover attachment.
 %% @end
 %%======================================================================
-save({Db, Record,File}) ->
+save_music({Db, Record,File}) ->
     {ok, Fd} = file:read_file(File),
     case couchbeam:save_doc(Db, Record) of
 	{ok,Doc} ->
@@ -160,10 +160,10 @@ create_music_record(File) when is_binary(File) ->
     UArtist = unicode:characters_to_binary(binary_to_list(Artist)),
     case TrackNo of
 	not_found ->
-	    {[generate_id(UFile, UArtist, UAlbum),{title, UFile},{album, UAlbum},{artist,UArtist},{track_no, 0},{timestamp,get_timestamp()}]};
+	    {[generate_id(UFile, UArtist, UAlbum),{type, music},{title, UFile},{album, UAlbum},{artist,UArtist},{track_no, 0},{timestamp,get_timestamp()}]};
 	_ ->
 	    TrackName = get_track_name(UFile),
-	    {[generate_id(TrackName, UArtist, UAlbum),{title, TrackName},{album, UAlbum},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
+	    {[generate_id(TrackName, UArtist, UAlbum),{type, music},{title, TrackName},{album, UAlbum},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
     end;
 
 create_music_record(File) -> 
