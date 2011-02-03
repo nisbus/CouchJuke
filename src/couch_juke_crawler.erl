@@ -12,12 +12,12 @@
 	 mp3/2,
 	 get_cover/1,
 	 create_music_record/1, 
-	 get_track_no/1,
 	 get_track_name/1,
 	 get_timestamp/0,
 	 save_inline/1]).
 
 -include_lib("eunit/include/eunit.hrl").
+
 %%====================================================================
 %% @spec start(BaseDir::string(), Concurrent::int(), DatabaseName::string(), ServerUrl::string(), Port::int()) -> List
 %% @doc Starts the crawler. 
@@ -33,10 +33,26 @@ start(BaseDir,Concurrent, DatabaseName, ServerUrl, Port) ->
     couchbeam:start(),
     {ok,Db} = connect(DatabaseName, ServerUrl, Port),
     couchjuke_queue:start_link(Concurrent),
-    filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, _AccIn) ->
-							 couchjuke_queue:add(F,Db)
-						 end,[]).
+    {ok, View} = couchbeam:all_docs(Db),
+    Existing = couchbeam_view:fold(View,fun(D,AccIn) ->
+    						{[{_,Id},{_,_},{_,_}]} = D,
+    						[Id|AccIn]
+    					end),
+%    io:format("Existing ~p~n",[Existing]).
+    Files = filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, _AccIn) ->
+    								 [F,_AccIn]
+    							 end,[]),
+    
+    Fixed = lists:foldl(fun(F,AccIn) ->
+    			[fix_file_name(F)|AccIn]
+    		end,[],Files),
+    
+    lists:foreach(fun(F) ->			  
+    			  couchjuke_queue:add(F,Db)
+    		  end,lists:subtract(Existing,Fixed)).
 
+fix_file_name(FileName) ->
+    FileName.
 %%====================================================================
 %% @spec connect(Db::string(), Server::string(), Port::int()) -> List
 %% @doc Connects to the couchdb instance
@@ -153,18 +169,13 @@ create_music_record(File) when is_binary(File) ->
     FileSplit = lists:reverse(re:split(binary_to_list(WoExt), "[/]")),
     [FileName|Rest] = FileSplit,
     [Album|Res] = Rest,
-    [Artist|_Ignore] = Res,
-    TrackNo = get_track_no(FileName),
-    UFile = unicode:characters_to_binary(binary_to_list(FileName)),
+    [Artist|_Ignore] = Res,    
+    {TrackNo,UFile} = get_track_name(FileName),
+    TrackName = unicode:characters_to_binary(binary_to_list(UFile)),
     UAlbum = unicode:characters_to_binary(binary_to_list(Album)),
     UArtist = unicode:characters_to_binary(binary_to_list(Artist)),
-    case TrackNo of
-	not_found ->
-	    {[generate_id(UFile, UArtist, UAlbum),{type, music},{title, UFile},{album, UAlbum},{artist,UArtist},{track_no, 0},{timestamp,get_timestamp()}]};
-	_ ->
-	    TrackName = get_track_name(UFile),
-	    {[generate_id(TrackName, UArtist, UAlbum),{type, music},{title, TrackName},{album, UAlbum},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)}, {timestamp,get_timestamp()}]}
-    end;
+    {Year,Alb} = get_year_from_album(UAlbum),
+    {[generate_id(TrackName, UArtist, Alb),{type, music},{title, TrackName},{album, Alb},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)},{year, Year},{timestamp,get_timestamp()}]};
 
 create_music_record(File) -> 
     create_music_record(unicode:characters_to_binary(File)).
@@ -186,27 +197,31 @@ get_timestamp() ->
     list_to_binary(TS).
 
 
-get_track_no(<<"(",No:2/binary,") - ",_/binary>>) ->
-    No;
-get_track_no(<<No:2/binary," - ",_/binary>>) ->
-    No;
-get_track_no(_) ->
-    not_found.
-
 generate_id(Title, Artist, Album) ->
     {<<"_id">>,list_to_binary(binary_to_list(Artist)++" - "++binary_to_list(Album)++" - "++binary_to_list(Title))}.
 
-get_track_name(<<"(",_No:2/binary,") - ",FileName/binary>>) ->
-    FileName;
-    
-get_track_name(<<_No:2/binary," - ",FileName/binary>>) ->
-    FileName;
+get_track_name(<<"(",TrackNo:2/binary,") - ",FileName/binary>>) ->
+    {TrackNo, FileName};
 
+get_track_name(<<TrackNo:2/binary," - ",FileName/binary>>) ->
+    {TrackNo, FileName};
+get_track_name(<<TrackNo:2/binary,". ",FileName/binary>>) ->
+    {TrackNo, FileName};
 get_track_name(FileName) ->
-    FileName.
+    {0, FileName}.
 
+drop_trailing_zeroes(0) ->
+    0;
 drop_trailing_zeroes(No) ->
     list_to_binary(lists:dropwhile(fun(X) -> X == $0 end, binary_to_list(No))).
+
+get_year_from_album(<<"(",Year:4/binary,") - ",Album/binary>>) ->
+    {Year,Album};
+get_year_from_album(<<"(",Year:4/binary,") ",Album/binary>>) ->
+    {Year,Album};
+get_year_from_album(Album) ->
+    {<<"unknown">>,Album}.
+
 
 %%=================================================================
 %% TESTS
@@ -244,3 +259,13 @@ parse_string_path_track_wo_track_no_test() ->
     Record = create_music_record(TestPath),
     ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
 
+funky_test() ->
+    B = <<68,195,166,103,117,114,108,97,103,97,32,80,195,182,110,107,32,72,
+            108,106,195,179,109,115,118,101,105,116,105,110,110,32,72,195,186,
+            102,97,32,45,32,73,108,108,97,32,102,97,114,105,195,176,32,109,101,
+            195,176,32,103,195,179,195,176,32,104,118,195,173,102,97,112,195,
+            182,114,32,45,32,68,195,166,103,117,114,108,97,103,97,32,80,195,
+            182,110,107,32,72,108,106,195,179,109,115,118,101,105,116,105,110,
+            110,32,72,195,186,102,97,32,45,32,48,51,32,45,32,195,141,32,72,108,
+	  195,173,195,176,97,114,101,110,100,97,107,111,116,105>>,
+    unicode:characters_to_binary(binary_to_list(B)).
