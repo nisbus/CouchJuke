@@ -14,7 +14,8 @@
 	 create_music_record/1, 
 	 get_track_name/1,
 	 get_timestamp/0,
-	 save_inline/1]).
+	 save_inline/1,
+	 fix_file_name/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -34,25 +35,24 @@ start(BaseDir,Concurrent, DatabaseName, ServerUrl, Port) ->
     {ok,Db} = connect(DatabaseName, ServerUrl, Port),
     couchjuke_queue:start_link(Concurrent),
     {ok, View} = couchbeam:all_docs(Db),
-    Existing = couchbeam_view:fold(View,fun(D,AccIn) ->
+    io:format("Getting existing files~n",[]),
+    _Existing = couchbeam_view:fold(View,fun(D,AccIn) ->
     						{[{_,Id},{_,_},{_,_}]} = D,
     						[Id|AccIn]
     					end),
-%    io:format("Existing ~p~n",[Existing]).
-    Files = filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, _AccIn) ->
-    								 [F,_AccIn]
+    
+    Files = filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, AccIn) ->
+    								 [F|AccIn]
     							 end,[]),
-    
-    Fixed = lists:foldl(fun(F,AccIn) ->
-    			[fix_file_name(F)|AccIn]
-    		end,[],Files),
-    
-    lists:foreach(fun(F) ->			  
-    			  couchjuke_queue:add(F,Db)
-    		  end,lists:subtract(Existing,Fixed)).
 
-fix_file_name(FileName) ->
-    FileName.
+    lists:foreach(fun(F) ->		
+    			  couchjuke_queue:add(F,Db)
+    		  end,lists:subtract(Files,_Existing)).
+
+fix_file_name(Filename) when is_binary(Filename)->
+    unicode:characters_to_binary(binary_to_list(Filename));
+fix_file_name(Filename) when is_list(Filename) ->
+    unicode:characters_to_binary(Filename).
 %%====================================================================
 %% @spec connect(Db::string(), Server::string(), Port::int()) -> List
 %% @doc Connects to the couchdb instance
@@ -109,6 +109,7 @@ mp3({mp3, File},Db) ->
 %% @end
 %%======================================================================
 save_music({Db, Record,File}) ->
+    io:format("saving ~p~n",[Record]),
     {ok, Fd} = file:read_file(File),
     case couchbeam:save_doc(Db, Record) of
 	{ok,Doc} ->
@@ -164,29 +165,32 @@ get_cover(File) ->
 						    [F|AccIn]
 					    end,[]).
 
-create_music_record(File) when is_binary(File) -> 
+create_music_record(File) when is_list(File) -> 
     WoExt = remove_file_extension(File),
-    FileSplit = lists:reverse(re:split(binary_to_list(WoExt), "[/]")),
+    FileSplit = lists:reverse(re:split(WoExt, "[/]")),
     [FileName|Rest] = FileSplit,
     [Album|Res] = Rest,
     [Artist|_Ignore] = Res,    
+    io:format("Filename ~p~n",[FileName]),
     {TrackNo,UFile} = get_track_name(FileName),
-    TrackName = unicode:characters_to_binary(binary_to_list(UFile)),
-    UAlbum = unicode:characters_to_binary(binary_to_list(Album)),
-    UArtist = unicode:characters_to_binary(binary_to_list(Artist)),
+    io:format("Filename ~p~n",[UFile]),
+    TrackName = unicode:characters_to_binary(UFile,latin1,utf8),
+    io:format("TrackName ~s~n",[binary_to_list(TrackName)]),
+    UAlbum = unicode:characters_to_binary(Album,latin1),
+    UArtist = unicode:characters_to_binary(Artist,latin1),
     {Year,Alb} = get_year_from_album(UAlbum),
     {[generate_id(TrackName, UArtist, Alb),{type, music},{title, TrackName},{album, Alb},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)},{year, Year},{timestamp,get_timestamp()}]};
 
-create_music_record(File) -> 
-    create_music_record(unicode:characters_to_binary(File)).
+create_music_record(File) when is_binary(File)-> 
+    io:format("Create from binary ~p~n",[File]),
+    create_music_record(binary_to_list(File)).
 
 remove_file_extension(File) ->
-    FileAsString = binary_to_list(File),
-    case lists:dropwhile(fun(X) -> X /= $. end, lists:reverse(FileAsString)) of
+    case lists:dropwhile(fun(X) -> X /= $. end, lists:reverse(File)) of
 	[] ->
 	    <<"Invalid filename">>;
 	[$.|T] ->
-	    list_to_binary(lists:reverse(T));
+	    lists:reverse(T);
 	[_H|_T] ->
 	    File
     end.
@@ -259,13 +263,7 @@ parse_string_path_track_wo_track_no_test() ->
     Record = create_music_record(TestPath),
     ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
 
-funky_test() ->
-    B = <<68,195,166,103,117,114,108,97,103,97,32,80,195,182,110,107,32,72,
-            108,106,195,179,109,115,118,101,105,116,105,110,110,32,72,195,186,
-            102,97,32,45,32,73,108,108,97,32,102,97,114,105,195,176,32,109,101,
-            195,176,32,103,195,179,195,176,32,104,118,195,173,102,97,112,195,
-            182,114,32,45,32,68,195,166,103,117,114,108,97,103,97,32,80,195,
-            182,110,107,32,72,108,106,195,179,109,115,118,101,105,116,105,110,
-            110,32,72,195,186,102,97,32,45,32,48,51,32,45,32,195,141,32,72,108,
-	  195,173,195,176,97,114,101,110,100,97,107,111,116,105>>,
-    unicode:characters_to_binary(binary_to_list(B)).
+u_test() ->
+    B ="d:/test/┌lpa/Dinzl/03 - Skur≡ur ß ■umli (live).mp3""d:/test/┌lpa/Dinzl/03 - Skur≡ur ß ■umli (live).mp3",
+    create_music_record(B).
+    
