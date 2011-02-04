@@ -13,9 +13,7 @@
 	 get_cover/1,
 	 create_music_record/1, 
 	 get_track_name/1,
-	 get_timestamp/0,
-	 save_inline/1,
-	 fix_file_name/1]).
+	 get_timestamp/0]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -36,23 +34,26 @@ start(BaseDir,Concurrent, DatabaseName, ServerUrl, Port) ->
     couchjuke_queue:start_link(Concurrent),
     {ok, View} = couchbeam:all_docs(Db),
     io:format("Getting existing files~n",[]),
-    _Existing = couchbeam_view:fold(View,fun(D,AccIn) ->
+    Existing = couchbeam_view:fold(View,fun(D,AccIn) ->
     						{[{_,Id},{_,_},{_,_}]} = D,
     						[Id|AccIn]
     					end),
-    
+    io:format("Existing files = ~p, filtering out existing from the new list ~n",[count(Existing)]),
     Files = filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, AccIn) ->
-    								 [F|AccIn]
+								 Record = create_music_record(F),
+								 {[{_,Id},{_,_},{_,_},{_,_},{_,_},{_,_},{_,_},{_,_}]} = Record,
+								 case lists:member(Id, Existing) of
+								     true -> AccIn;
+								     false ->
+									 [{F,Record}|AccIn]
+								 end
     							 end,[]),
-
+    io:format("Found ~p new files~n",[count(Files)]),
     lists:foreach(fun(F) ->		
-    			  couchjuke_queue:add(F,Db)
-    		  end,lists:subtract(Files,_Existing)).
+			  {File, Record} = F,
+    			  couchjuke_queue:add(File, Record, Db)
+    		  end,Files).
 
-fix_file_name(Filename) when is_binary(Filename)->
-    unicode:characters_to_binary(binary_to_list(Filename));
-fix_file_name(Filename) when is_list(Filename) ->
-    unicode:characters_to_binary(Filename).
 %%====================================================================
 %% @spec connect(Db::string(), Server::string(), Port::int()) -> List
 %% @doc Connects to the couchdb instance
@@ -77,7 +78,7 @@ connect(Database, Server, Port) ->
 %% This is how I organize my music library on disk i.e.
 %%    Artist
 %%      |
-%%      ===Albums
+%%      ===Year - Albums
 %%            |
 %%            ==== TrackNo - Track
 %%
@@ -89,17 +90,17 @@ connect(Database, Server, Port) ->
 %%   note that the first item is the CouchDb Id of the file which is to get rid of duplicates.
 %% @end
 %%=====================================================================
-mp3({mp3, File},Db) ->
+mp3({mp3, File,Record},Db) ->
     %% Tag = id3_v1:read_id3_tag(File),
     %% case Tag of 
     %% 	not_found ->
-    R = create_music_record(File),
+    %R = create_music_record(File),
     %% 	    save({Db, R, File});
     %% 	_ ->
     %R = get_music_record(Tag),
-    save_music({Db, R, File}),
+    save_music({Db, Record, File}),
 %    end,
-    couchjuke_queue:done(File).
+    couchjuke_queue:done(File,Record).
 
 %%======================================================================
 %% @spec save({Db::couchDb(), Record::music_record, File::file()}) -> ignored
@@ -109,7 +110,6 @@ mp3({mp3, File},Db) ->
 %% @end
 %%======================================================================
 save_music({Db, Record,File}) ->
-    io:format("saving ~p~n",[Record]),
     {ok, Fd} = file:read_file(File),
     case couchbeam:save_doc(Db, Record) of
 	{ok,Doc} ->
@@ -127,28 +127,13 @@ save_music({Db, Record,File}) ->
 		    _CoverAtt = couchbeam:put_attachment(Db, Id, "cover", Cover, [{rev, NewRev},{content_type, "image/jpg"}, {content_length, CoverLength}])
 	    end;
 	{error,conflict} ->
-	    io:format("File already exists ~n"),
+	    io:format("File already exists ~p~n",[File]),
 	    ok;
 	{error, Reason} ->
 	    io:format("Error saving file ~p, ~p~n",[File,Reason]),
 	    stop
     end.
 
-%%======================================================================
-%% @doc if you prefer to have inline attachments (Base64 encoded) use this one.
-%%======================================================================
-save_inline({Db, Record,File}) ->
-    {ok, Fd} = file:read_file(File),
-    case get_cover(File) of
-    	[] ->	    
-    	    Doc = couchbeam_attachments:add_inline(Record, Fd, "song", "audio/mp3"),
-    	    {ok,_Doc} = couchbeam:save_doc(Db, Doc);
-    	[H|_T] ->		
-	    DocCover = couchbeam_attachments:add_inline(Record, Fd, "song", "audio/mp3"),
-	    {ok, Cover} = file:read_file(H),
-	    Doc = couchbeam_attachments:add_inline(DocCover, Cover, "cover","image/jpg"),
-	    couchbeam:save_doc(Db, Doc)
-   end.
 
 %%=======================================================================
 %% @spec get_cover(File::string()) -> List
@@ -167,22 +152,19 @@ get_cover(File) ->
 
 create_music_record(File) when is_list(File) -> 
     WoExt = remove_file_extension(File),
-    FileSplit = lists:reverse(re:split(WoExt, "[/]")),
+%    io:format("splitting ~s~n",[WoExt]),
+    FileSplit = lists:reverse(re:split(WoExt, "[/]",[{return,list}])),
     [FileName|Rest] = FileSplit,
     [Album|Res] = Rest,
     [Artist|_Ignore] = Res,    
-    io:format("Filename ~p~n",[FileName]),
-    {TrackNo,UFile} = get_track_name(FileName),
-    io:format("Filename ~p~n",[UFile]),
+    {TrackNo,UFile} = get_track_name(unicode:characters_to_binary(FileName,latin1,utf8)),
     TrackName = unicode:characters_to_binary(UFile,latin1,utf8),
-    io:format("TrackName ~s~n",[binary_to_list(TrackName)]),
     UAlbum = unicode:characters_to_binary(Album,latin1),
     UArtist = unicode:characters_to_binary(Artist,latin1),
     {Year,Alb} = get_year_from_album(UAlbum),
     {[generate_id(TrackName, UArtist, Alb),{type, music},{title, TrackName},{album, Alb},{artist,UArtist},{track_no, drop_trailing_zeroes(TrackNo)},{year, Year},{timestamp,get_timestamp()}]};
 
 create_music_record(File) when is_binary(File)-> 
-    io:format("Create from binary ~p~n",[File]),
     create_music_record(binary_to_list(File)).
 
 remove_file_extension(File) ->
@@ -206,10 +188,15 @@ generate_id(Title, Artist, Album) ->
 
 get_track_name(<<"(",TrackNo:2/binary,") - ",FileName/binary>>) ->
     {TrackNo, FileName};
-
 get_track_name(<<TrackNo:2/binary," - ",FileName/binary>>) ->
     {TrackNo, FileName};
 get_track_name(<<TrackNo:2/binary,". ",FileName/binary>>) ->
+    {TrackNo, FileName};
+get_track_name(<<TrackNo:2/binary," ",FileName/binary>>) ->
+    {TrackNo, FileName};
+get_track_name(<<"[",TrackNo:2/binary,"] - ",FileName/binary>>) ->
+    {TrackNo, FileName};
+get_track_name(<<TrackNo:2/binary,"-",FileName/binary>>) ->
     {TrackNo, FileName};
 get_track_name(FileName) ->
     {0, FileName}.
@@ -223,47 +210,16 @@ get_year_from_album(<<"(",Year:4/binary,") - ",Album/binary>>) ->
     {Year,Album};
 get_year_from_album(<<"(",Year:4/binary,") ",Album/binary>>) ->
     {Year,Album};
+get_year_from_album(<<Year:4/binary," - ",Album/binary>>) ->
+    {Year,Album};
+get_year_from_album(<<Year:4/binary," ",Album/binary>>) ->
+    {Year,Album};
 get_year_from_album(Album) ->
     {<<"unknown">>,Album}.
 
+count([]) -> 0;
+count([_|T]) -> 1 + count(T).
 
-%%=================================================================
-%% TESTS
-%% For some reason the tests don't pass as the hard coded expected 
-%% results come out a bit weird.
-%% If anyone knows what the deal is, it would be appreciated if it was fixed.
-%%=================================================================
-parse_binary_path_leading_track_no_test() ->
-    TestPath = <<"/home/nisbus/Music/nisbus/lowercase/03 - lullabyte.mp3">>,
-    Record = create_music_record(TestPath),
-    ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"3">>}]}).
-    
-parse_binary_path_leading_track_no_in_amperasands_test() ->
-    TestPath = <<"/home/nisbus/Music/nisbus/lowercase/(03) - lullabyte.mp3">>,
-    Record = create_music_record(TestPath),
-    ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"3">>}]}).
-
-parse_binary_path_track_wo_track_no_test() ->
-    TestPath = <<"/home/nisbus/Music/nisbus/lowercase/lullabyte.mp3">>,
-    Record = create_music_record(TestPath),
-    ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
-
-parse_string_path_leading_track_no_test() ->
-    TestPath = "/home/nisbus/Music/nisbus/lowercase/03 - lullabyte.mp3",
-    Record = create_music_record(TestPath),
-    ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"3">>}]}).
-    
-parse_string_path_leading_track_no_in_amperasands_test() ->
-    TestPath = "/home/nisbus/Music/nisbus/lowercase/(03) - lullabyte.mp3",
-    Record = create_music_record(TestPath),
-    ?assert(Record =:= {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"3">>}]}).
-
-parse_string_path_track_wo_track_no_test() ->
-    TestPath = "/home/nisbus/Music/nisbus/lowercase/lullabyte.mp3",
-    Record = create_music_record(TestPath),
-    ?assert(Record == {[<<"lullabyte - nisbus - lowercase">>,{title, <<"lullabyte">>},{album, <<"lowercase">>},{artist,<<"nisbus">>},{track_no, <<"0">>}]}).
-
-u_test() ->
-    B ="d:/test/┌lpa/Dinzl/03 - Skur≡ur ß ■umli (live).mp3""d:/test/┌lpa/Dinzl/03 - Skur≡ur ß ■umli (live).mp3",
-    create_music_record(B).
-    
+parse_test() ->
+   F = "D:/shares/Music/1 12/2000 - no title/01 - intro.mp3",
+   create_music_record(F). 

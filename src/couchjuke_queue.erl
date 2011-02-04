@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, add/2, done/1]).
+-export([start_link/1, add/3, done/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -31,10 +31,10 @@
 %%====================================================================
 %% API
 %%====================================================================
-add(File, Db) ->
-    gen_server:cast(?SERVER, {add, File,Db}).
-done(File) ->
-    gen_server:cast(?SERVER, {done, File}).
+add(File,Record, Db) ->
+    gen_server:cast(?SERVER, {add, File, Record, Db}).
+done(File,Record) ->
+    gen_server:cast(?SERVER, {done, File,Record}).
 %%--------------------------------------------------------------------
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
@@ -79,15 +79,16 @@ handle_cast([ok],State) ->
     io:format("ignored ok event~n"),
     {noreply, State};
 
-handle_cast({done,File}, State) ->
-    NewList = lists:delete(File,State#state.running),
+handle_cast({done,File,Record}, State) ->
+    NewList = lists:delete({File,Record},State#state.running),
     NewState = State#state{running = NewList},
-    case count(NewState#state.pending) > 0 of
+    Pending = count(NewState#state.pending),
+    io:format("Remaining ~p~n",[Pending]),
+    case Pending > 0 of
 	true ->
-	     F = hd(NewState#state.pending),
-	    
-	    _P = spawn_link(couch_juke_crawler, mp3, [{mp3,F},State#state.db]),
-	    {noreply, NewState#state{running = [F|NewState#state.running], pending = lists:delete(F,NewState#state.pending)}};
+	     {F,R} = hd(NewState#state.pending),	    
+	    _P = spawn_link(couch_juke_crawler, mp3, [{mp3,F,R},State#state.db]),
+	    {noreply, NewState#state{running = [{F,R}|NewState#state.running], pending = lists:delete({F,R},NewState#state.pending)}};
 	false ->
 	    case count(NewState#state.running) == 0 of
 		true ->
@@ -98,20 +99,20 @@ handle_cast({done,File}, State) ->
 	    end
     end;
 
-handle_cast({add, File, Db}, State) ->
+handle_cast({add, File, Record, Db}, State) ->
     case count(State#state.running) of
 	0 ->
-	    _P = spawn_link(couch_juke_crawler, mp3, [{mp3, File},Db]),
-	    NewState = State#state{running = [File|State#state.running], db = Db, pending = lists:delete(File, State#state.pending)},
+	    _P = spawn_link(couch_juke_crawler, mp3, [{mp3, File, Record},Db]),
+	    NewState = State#state{running = [{File,Record}|State#state.running], db = Db, pending = lists:delete({File,Record}, State#state.pending)},
 	    {noreply, NewState};
 	Count ->
 	    case State#state.max == Count of
 		true ->
-		    NewState = State#state{pending = [File|State#state.pending], db = Db},
+		    NewState = State#state{pending = [{File,Record}|State#state.pending], db = Db},
 		   {noreply, NewState};
 		false ->
-		    spawn_link(couch_juke_crawler, mp3, [{mp3, File},Db]),
-		    NewState = State#state{running = [File|State#state.running], db = Db},
+		    spawn_link(couch_juke_crawler, mp3, [{mp3, File, Record},Db]),
+		    NewState = State#state{running = [{File,Record}|State#state.running], db = Db},
 		    {noreply, NewState}
 	    end
     end;
