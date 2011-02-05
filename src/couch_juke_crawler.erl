@@ -13,7 +13,8 @@
 	 get_cover/1,
 	 create_music_record/1, 
 	 get_track_name/1,
-	 get_timestamp/0]).
+	 get_timestamp/0,
+	 covers_only/4]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -54,6 +55,29 @@ start(BaseDir,Concurrent, DatabaseName, ServerUrl, Port) ->
     			  couchjuke_queue:add(File, Record, Db)
     		  end,Files).
 
+covers_only(BaseDir, DatabaseName, ServerUrl, Port) ->
+    couchbeam:start(),
+    {ok,Db} = connect(DatabaseName, ServerUrl, Port),
+    filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, AccIn) ->
+							 Record = create_music_record(F),
+							 {[{_,Id},{_,_},{_,_},{_,_},{_,_},{_,_},{_,_},{_,_}]} = Record,
+							 case get_cover(F) of
+							     [] ->
+								 void;
+							     [H|_T] ->
+								 case couchbeam:open_doc(Db,Id) of
+								     {ok, Doc} ->
+									 {DocId, Rev} = couchbeam_doc:get_idrev(Doc),
+									 {ok, Cover} = file:read_file(H),
+									 CoverLength = filelib:file_size(H),
+									 _CoverAtt = couchbeam:put_attachment(Db, DocId, "cover", Cover, [{rev, Rev},{content_type, "image/jpg"}, {content_length, CoverLength}]);
+									     _ ->
+									 void
+								 end
+							 end,
+							 [{F,Record}|AccIn]
+						 end,[]).
+    
 %%====================================================================
 %% @spec connect(Db::string(), Server::string(), Port::int()) -> List
 %% @doc Connects to the couchdb instance
@@ -144,7 +168,12 @@ get_cover(File) ->
     Tokens = string:tokens(File,"/"),
     [_H|T] = lists:reverse(Tokens),
     Dir = lists:foldr(fun(X, AccIn) ->
-			AccIn++"/"++X
+			      case AccIn of
+				  "" ->
+				      X;
+				  _ ->
+				      AccIn++"/"++X
+			      end
 		end,"",T),
     filelib:fold_files(Dir,".+\.jpg",false, fun(F, AccIn) ->
 						    [F|AccIn]
@@ -157,8 +186,7 @@ create_music_record(File) when is_list(File) ->
     [FileName|Rest] = FileSplit,
     [Album|Res] = Rest,
     [Artist|_Ignore] = Res,    
-    {TrackNo,UFile} = get_track_name(unicode:characters_to_binary(FileName,latin1,utf8)),
-    TrackName = unicode:characters_to_binary(UFile,latin1,utf8),
+    {TrackNo,TrackName} = get_track_name(unicode:characters_to_binary(FileName,latin1,utf8)),
     UAlbum = unicode:characters_to_binary(Album,latin1),
     UArtist = unicode:characters_to_binary(Artist,latin1),
     {Year,Alb} = get_year_from_album(UAlbum),
