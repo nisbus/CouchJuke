@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>CouchJuke</title>
+    <link rel="stylesheet" href="style/main.css" type="text/css">
+  </head>
+  <body>
+    <div id="account"></div>
+
+    <h1>CouchJuke</h1>
+
+    <div id="profile"></div>
+
+
+    <div id="main">
+      <div id="ArtistBlock"  width="30%" style="float:left;">
+	<table id="artists" cellspacing="0px" cellpadding="0px" border="0px">
+	  <thead>
+	    <tr><th>Artist</th><th>Album count</th></tr>
+	  </thead>
+	  <tbody>
+	  </tbody>
+	</table>
+      </div>
+
+      <div id="AlbumBlock" width="30%" style="float:left;">
+      </div>
+
+      <div id="SongBlock" width="30%" style="float:left;">
+      </div>
+
+    </div> 
+    <div style="float:bottom; width:3%">
+      <p>Edit welcome message.</p>
+    </div>
+    <!-- TEMPLATES -->
+    <script type="text/template" id="albumsTemplate">
+	<table id="albums" cellspacing="0px" cellpadding="0px" border="0px">
+	  <tr><th>Album<th><th>Details</th></tr>
+	</table>
+    </script>
+    <script type="text/template" id="songsTemplate">
+	<table id="songs" cellspacing="0px" cellpadding="0px" border="0px">
+	  <tr><th>Title<th><th>Track</th><th>Play</th></tr>
+	</table>
+    </script>
+
+    <script type="text/template" id="songTemplate">
+      <td class="selectableSong"><%= title %> </td><td> <%= track_no %></td><td><audio src=<%= song_url %> controls="controls">
+Your browser does not support the audio element.
+</audio></td>
+    </script>
+    <script type="text/template" id="albumTemplate">
+      <td class="selectableAlbum"><img src=<%= cover %> height="48" width="48"</img></td>
+      <td class="selectableAlbum">
+	<div> Title: <%= title %></div>
+	<div> Tracks: <%= track_count %></div>
+	<div> Year: <%= year %></div>
+	<div> Genre: <%= genre %></div>	
+      </td>
+    </script>
+    </script>
+    <script type="text/template" id="artistTemplate">
+	<td class="selectableArtist"><%= artist %> </td><td> <%= album_count %></td>
+    </script>
+    
+    <script type="text/template" id="mainTemplate"></script>
+  </body>
+  <script type="text/javascript" src="vendor/couchapp/jquery.js"></script>
+  <script type="text/javascript" src="vendor/couchapp/jquery.tmpl.js"></script>
+  <script type="text/javascript" src="vendor/couchapp/jquery.dataTables.js"></script>
+  <script type="text/javascript" src="vendor/couchapp/underscore.js"></script>
+  <script type="text/javascript" src="vendor/couchapp/backbone.js"></script>
+  <script type="text/javascript" src="http://localhost:5984/_utils/script/jquery.couch.js"></script>
+  <script type="text/javascript" src="vendor/couchapp/models.js"></script>
+  <script src="vendor/couchapp/loader.js"></script>
+  <script type="text/javascript" charset="utf-8">
+    $.couch.app(function(app) {
+      $("#account").evently("account", app);
+      $("#profile").evently("profile", app);
+      $.evently.connect("#account","#profile", ["loggedIn","loggedOut"]);
+    });
+  </script>
+<!--
+  <script type="text/javascript" charset="utf-8">
+    $(document).ready(function(){
+        $('#artists').dataTable();
+    });
+  </script>
+-->
+</html>

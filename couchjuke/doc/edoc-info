@@ -1,0 +1,3 @@
+{application,couchjuke}.
+{packages,[]}.
+{modules,[couch_juke_crawler,couchjuke_app,couchjuke_sup,id3_v1,mochinum]}.
