@@ -5,7 +5,7 @@
   {registered, [couch_juke_crawler, id3_v1, couchjuke_sup]},
   {applications, [
                   kernel,
-                  stdlib,
+                  stdlib
                  ]},
   {mod, { couchjuke, []}},
   {env, []}

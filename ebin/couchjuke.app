@@ -2,7 +2,7 @@
              [{description,[]},
               {vsn,"1.0"},
               {registered,[couch_juke_crawler,id3_v1,couchjuke_sup]},
-              {applications,[kernel,stdlib,couchbeam]},
+              {applications,[kernel,stdlib]},
               {mod,{couchjuke,[]}},
               {env,[]},
               {modules,[couch_juke_crawler,couchjuke_app,couchjuke_sup,id3_v1,
