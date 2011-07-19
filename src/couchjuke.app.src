@@ -6,7 +6,6 @@
   {applications, [
                   kernel,
                   stdlib,
-		  couchbeam
                  ]},
   {mod, { couchjuke, []}},
   {env, []}
