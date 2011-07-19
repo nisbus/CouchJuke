@@ -31,19 +31,17 @@
 -spec start(BaseDir::string(),Db::string()) -> ok.
 start(BaseDir,Db) ->
     AlbumList = get_album_list(BaseDir),
-    {ok, Db} = couchc:open_or_create_db(Db),
+     {ok,CDb} = couchc:open_db(Db),
     lists:foreach(fun(_S) ->
 			  CouchAlbum = convert_album(_S),
-			  save_album(Db,CouchAlbum,_S)			  
+			  save_album(CDb,CouchAlbum,_S)			  
 		  end,AlbumList).
 
 %% @doc start scanning the given directory and saves it all to the couchjuke db at localhost
 -spec start(BaseDir::string()) -> ok.    
 start(BaseDir) ->
     AlbumList = get_album_list(BaseDir),
-    OpenDb = couchc:open_or_create_db("couchjuke"),
-    error_logger:info_msg("Opendb response ~p~n",[OpenDb]),
-    {ok,Db,[]} = OpenDb,
+    {ok,Db} = couchc:open_db("couchjuke"),
     lists:foreach(fun(_S) ->
 			  CouchAlbum = convert_album(_S),
 			  save_album(Db,CouchAlbum,_S)			  
@@ -86,7 +84,7 @@ get_tag({mp3, File}) ->
 get_cover(File) ->
     Tokens = string:tokens(File,"/"),
     [_H|T] = lists:reverse(Tokens),
-    Dir = lists:foldr(fun(X, AccIn) ->
+    Directory = lists:foldr(fun(X, AccIn) ->
 			      case AccIn of 
 				  "" ->
 				      X;
@@ -94,6 +92,13 @@ get_cover(File) ->
 				      AccIn++"/"++X
 			      end
 		end,"",T),
+    Dir = case hd(File) of
+	      "/" -> 
+		  "/"++Directory;
+	      47 -> "/"++Directory;
+	      _ ->
+		Directory
+	  end,
     Covers = filelib:fold_files(Dir,".+\.jpg",false, fun(F, AccIn) ->
 							     [F|AccIn]
 						     end,[]),
@@ -123,8 +128,8 @@ utf(O) ->
 save_album(Connection,CouchAlbum, Album) ->
     case couchc:save_doc(Connection, CouchAlbum) of
 	{ok, Id,Rev} ->
-	    NewDoc = save_cover(Connection,Album, {Id,Rev}),
-	    save_songs(Connection, Album, {Id, Rev});
+	    {NewId,NewRev} = save_cover(Connection,Album, {Id,Rev}),
+	    save_songs(Connection, Album, {NewId, NewRev});
 	{error, conflict} ->
 	    io:format("Document (album) already exists ~p~n",[Album#album.title]);
 	{error, Reason} ->
@@ -148,12 +153,15 @@ save_song(Db,Song,{Id, Rev}) ->
 	    {Id,Rev};
 	{error, Reason} ->
 	    error_logger:error_msg("Error saving song ~p~n",[Reason]),
-	    {Id,Rev}	    
+	    {Id,Rev};
+	 Other ->
+	    error_logger:info_msg("Save attachment returned ~p~n",[Other])
     end.
 
 save_cover(Connection, Album, {Id,Rev}) ->
     case Album#album.cover of
 	undefined ->
+	    error_logger:info_msg("No cover found for album~n"),
 	    {Id,Rev};
 	Cover ->
 	    {ok, Fd} = file:read_file(Cover),
