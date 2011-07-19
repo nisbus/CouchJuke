@@ -41,7 +41,9 @@ start(BaseDir,Db) ->
 -spec start(BaseDir::string()) -> ok.    
 start(BaseDir) ->
     AlbumList = get_album_list(BaseDir),
-    {ok,Db} = couchc:open_or_create_db("couchjuke"),
+    OpenDb = couchc:open_or_create_db("couchjuke"),
+    error_logger:info_msg("Opendb response ~p~n",[OpenDb]),
+    {ok,Db,[]} = OpenDb,
     lists:foreach(fun(_S) ->
 			  CouchAlbum = convert_album(_S),
 			  save_album(Db,CouchAlbum,_S)			  
@@ -120,9 +122,8 @@ utf(O) ->
 				    
 save_album(Connection,CouchAlbum, Album) ->
     case couchc:save_doc(Connection, CouchAlbum) of
-	{ok, Doc} ->
-	    NewDoc = save_cover(Connection,Album, Doc),
-	    [{_,Id},{_, Rev}] = NewDoc,
+	{ok, Id,Rev} ->
+	    NewDoc = save_cover(Connection,Album, {Id,Rev}),
 	    save_songs(Connection, Album, {Id, Rev});
 	{error, conflict} ->
 	    io:format("Document (album) already exists ~p~n",[Album#album.title]);
@@ -134,8 +135,7 @@ save_album(Connection,CouchAlbum, Album) ->
 
 save_songs(Connection,Album, {Id, Rev}) ->
     lists:foldl(fun(X,AccIn) ->
-			[{_,NewId},{_,NewRev}] = save_song(Connection,X,AccIn),
-			{NewId, NewRev}
+			save_song(Connection,X,AccIn)			
 		end,{Id, Rev},Album#album.songs).
 
 save_song(Db,Song,{Id, Rev}) ->
@@ -143,25 +143,23 @@ save_song(Db,Song,{Id, Rev}) ->
     Length = filelib:file_size(Song#song.file),
     T = edoc_lib:escape_uri(binary_to_list(utf(Song#song.title))),
     case couchc:save_attachment(Db, Id, T, Fd, [{rev, Rev}, {content_type,"audio/mp3"}, {content_length, Length}]) of
-	{ok, {NewDoc}} -> NewDoc;
+	{ok, NewId, NewRev} -> {NewId,NewRev};
 	{error, retry_later} ->
-	    [{"_id",Id},{"rev", Rev}];
+	    {Id,Rev};
 	{error, Reason} ->
 	    error_logger:error_msg("Error saving song ~p~n",[Reason]),
-	    [{"_id",Id},{"rev", Rev}]	    
+	    {Id,Rev}	    
     end.
 
-save_cover(Connection, Album, Doc) ->
-    Id = proplists:get_value(<<"_id">>,Doc),
-    Rev = proplists:get_value(<<"_rev">>,Doc),
+save_cover(Connection, Album, {Id,Rev}) ->
     case Album#album.cover of
 	undefined ->
-	    [{"",Id},{"",Rev}];
+	    {Id,Rev};
 	Cover ->
 	    {ok, Fd} = file:read_file(Cover),
 	    Length = filelib:file_size(Cover),
-	    {ok, {DocWCover}} = couchc:save_attachment(Connection, Id, "cover", Fd, [{rev, Rev}, {content_type,"image/jpg"}, {content_length, Length}]),
-	    DocWCover
+	    {ok, NewId,NewRev} = couchc:save_attachment(Connection, Id, "cover", Fd, [{rev, Rev}, {content_type,"image/jpg"}, {content_length, Length}]),
+	    {NewId,NewRev}
     end.    
 
 get_music_record(error) ->
