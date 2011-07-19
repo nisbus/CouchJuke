@@ -126,16 +126,14 @@ utf(O) ->
     O.
 				    
 save_album(Connection,CouchAlbum, Album) ->
-    case couchc:save_doc(Connection, CouchAlbum) of
+    case catch couchc:save_doc(Connection, CouchAlbum) of
 	{ok, Id,Rev} ->
 	    {NewId,NewRev} = save_cover(Connection,Album, {Id,Rev}),
 	    save_songs(Connection, Album, {NewId, NewRev});
-	{error, conflict} ->
-	    io:format("Document (album) already exists ~p~n",[Album#album.title]);
 	{error, Reason} ->
 	    io:format("Error saving file ~p~n",[Reason]);
-	Other ->
-	    io:format("Unexpected result from saving album ~p~n",[Other])	    
+	conflict ->
+	    io:format("Album already exists~n")	    
     end.
 
 save_songs(Connection,Album, {Id, Rev}) ->
