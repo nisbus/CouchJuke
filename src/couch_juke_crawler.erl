@@ -6,7 +6,7 @@
 %%% Created : 13 Jan 2011 by nisbus
 %%%-------------------------------------------------------------------
 -module(couch_juke_crawler).
--export([start/1,start/6]).
+-export([start/1,start/2]).
 -include_lib("kernel/include/file.hrl").
 -include("../include/jsonerl.hrl").
 
@@ -28,27 +28,23 @@
 %%====================================================================
 
 %% @doc start scanning the given directory and saves it all to the couchdb at the url given
--spec start(BaseDir::string(),User::string(),Pass::string(),Url::string(),Port::integer(),Db::string()) -> ok.
-start(BaseDir,User,Pass,Url,Port,Db) ->
-    couchbeam:start(),
+-spec start(BaseDir::string(),Db::string()) -> ok.
+start(BaseDir,Db) ->
     AlbumList = get_album_list(BaseDir),
-    {ok,Connection} = connect(User,Pass,Url,Port,Db),
-    io:format("Connection ~p, saving...~n",[Connection]),
+    {ok, Db} = couchc:open_or_create_db(Db),
     lists:foreach(fun(_S) ->
 			  CouchAlbum = convert_album(_S),
-			  save_album(Connection,CouchAlbum,_S)			  
+			  save_album(Db,CouchAlbum,_S)			  
 		  end,AlbumList).
 
 %% @doc start scanning the given directory and saves it all to the couchjuke db at localhost
 -spec start(BaseDir::string()) -> ok.    
 start(BaseDir) ->
-    couchbeam:start(),
     AlbumList = get_album_list(BaseDir),
-    {ok,Connection} = connect("couchjuke"),
-    io:format("Connection ~p, saving...~n",[Connection]),
+    {ok,Db} = couchc:open_or_create_db("couchjuke"),
     lists:foreach(fun(_S) ->
 			  CouchAlbum = convert_album(_S),
-			  save_album(Connection,CouchAlbum,_S)			  
+			  save_album(Db,CouchAlbum,_S)			  
 		  end,AlbumList).
 
 %%====================================================================
@@ -104,16 +100,7 @@ get_cover(File) ->
 	    undefined;
 	[H|_T] ->
 	    H
-    end.
-
-connect(Db) ->
-    Connection = couchbeam:server_connection("127.0.0.1", 5984, "", []),
-    couchbeam:open_db(Connection, Db, []).
-
-connect(User,Pass,IP,Port,Db) ->
-    Connection = couchbeam:server_connection(User++":"++Pass++"@"++IP, Port, "", []),
-    couchbeam:open_db(Connection, Db, []).
-    
+    end.  
 
 convert_album(Album) ->
     Id = list_to_binary(binary_to_list(utf(Album#album.artist))++" - "++utf(binary_to_list(Album#album.title))),
@@ -132,7 +119,7 @@ utf(O) ->
     O.
 				    
 save_album(Connection,CouchAlbum, Album) ->
-    case couchbeam:save_doc(Connection, CouchAlbum) of
+    case couchc:save_doc(Connection, CouchAlbum) of
 	{ok, Doc} ->
 	    NewDoc = save_cover(Connection,Album, Doc),
 	    [{_,Id},{_, Rev}] = NewDoc,
@@ -155,7 +142,7 @@ save_song(Db,Song,{Id, Rev}) ->
     {ok, Fd} = file:read_file(Song#song.file),
     Length = filelib:file_size(Song#song.file),
     T = edoc_lib:escape_uri(binary_to_list(utf(Song#song.title))),
-    case couchbeam:put_attachment(Db, Id, T, Fd, [{rev, Rev}, {content_type,"audio/mp3"}, {content_length, Length}]) of
+    case couchc:save_attachment(Db, Id, T, Fd, [{rev, Rev}, {content_type,"audio/mp3"}, {content_length, Length}]) of
 	{ok, {NewDoc}} -> NewDoc;
 	{error, retry_later} ->
 	    [{"_id",Id},{"rev", Rev}];
@@ -165,15 +152,15 @@ save_song(Db,Song,{Id, Rev}) ->
     end.
 
 save_cover(Connection, Album, Doc) ->
-    Id = couchbeam_doc:get_id(Doc),
-    Rev = couchbeam_doc:get_rev(Doc),
+    Id = proplists:get_value(<<"_id">>,Doc),
+    Rev = proplists:get_value(<<"_rev">>,Doc),
     case Album#album.cover of
 	undefined ->
 	    [{"",Id},{"",Rev}];
 	Cover ->
 	    {ok, Fd} = file:read_file(Cover),
 	    Length = filelib:file_size(Cover),
-	    {ok, {DocWCover}} = couchbeam:put_attachment(Connection, Id, "cover", Fd, [{rev, Rev}, {content_type,"image/jpg"}, {content_length, Length}]),
+	    {ok, {DocWCover}} = couchc:save_attachment(Connection, Id, "cover", Fd, [{rev, Rev}, {content_type,"image/jpg"}, {content_length, Length}]),
 	    DocWCover
     end.    
 
