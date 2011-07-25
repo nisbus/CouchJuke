@@ -1,12 +1,13 @@
 %%%-------------------------------------------------------------------
 %%% File    : couch_save.erl
-%%% Author  : nisbus
-%%% Description : 
-%%%
-%%% Created : 13 Jan 2011 by nisbus
+%%% Author  : nisbus <nisbus@gmail.com>
+%%% Description : A crawler that crawls a directory for music or movies 
+%%% and saves the results to couchdb.
+%%% 
+%%% Created : 13 Jan 2011 by nisbus <nisbus@gmail.com>
 %%%-------------------------------------------------------------------
 -module(couch_juke_crawler).
--export([start/1,start/2]).
+-export([music/1,music/2,movies/1,movies/2]).
 -include_lib("kernel/include/file.hrl").
 -include("../include/jsonerl.hrl").
 
@@ -23,13 +24,31 @@
 	  id, title, album, artist, track_no, file, comment, year, genre
 	}).
 
+-record(movie,
+	{
+	  file
+	}).
 %%====================================================================
 %% API
 %%====================================================================
+%%@doc starts scanning the directory given and saves the movies to couchdb.
+-spec movies(BaseDir:: string(),Db::string()) -> ok.
+movies(BaseDir,Db) ->
+    MovieList = get_movie_list(BaseDir),
+    {ok,CDb} = couchc:open_db(Db),
+    lists:foreach(fun(M) ->
+			  CouchMovie = convert_movie(M),
+			  save_movie(CDb,CouchMovie,M)
+		  end,MovieList).
 
-%% @doc start scanning the given directory and saves it all to the couchdb at the url given
--spec start(BaseDir::string(),Db::string()) -> ok.
-start(BaseDir,Db) ->
+%% @doc same as calling movies(BaseDir,"couchjuke_movies") //default movie db
+-spec movies(BaseDir:: string()) -> ok.		    
+movies(BaseDir) ->
+    movies(BaseDir,"couchjuke_movies").
+
+%% @doc start scanning the given directory and saves albums found as documents in couchdb
+-spec music(BaseDir::string(),Db::string()) -> ok.
+music(BaseDir,Db) ->
     AlbumList = get_album_list(BaseDir),
      {ok,CDb} = couchc:open_db(Db),
     lists:foreach(fun(_S) ->
@@ -37,19 +56,26 @@ start(BaseDir,Db) ->
 			  save_album(CDb,CouchAlbum,_S)			  
 		  end,AlbumList).
 
-%% @doc start scanning the given directory and saves it all to the couchjuke db at localhost
--spec start(BaseDir::string()) -> ok.    
-start(BaseDir) ->
-    AlbumList = get_album_list(BaseDir),
-    {ok,Db} = couchc:open_db("couchjuke"),
-    lists:foreach(fun(_S) ->
-			  CouchAlbum = convert_album(_S),
-			  save_album(Db,CouchAlbum,_S)			  
-		  end,AlbumList).
+%% @doc same as calling music(BaseDir,"couchjuke_music") //default music db
+-spec music(BaseDir::string()) -> ok.    
+music(BaseDir) ->
+    music(BaseDir,"couchjuke_music").
 
 %%====================================================================
-%% Internal functions
+%% Helper functions
 %%====================================================================
+%% @hidden
+utf(B) when is_binary(B) ->
+    unicode:characters_to_binary(binary_to_list(B));
+utf([L]) ->
+    unicode:characters_to_binary(L);
+utf(L) when is_list(L) ->
+    unicode:characters_to_binary(L);
+utf(O) ->
+    O.
+%%=======================================================================================
+%%  Music related functions
+%%=======================================================================================
 get_album_list(BaseDir) ->
     error_logger:info_msg("Scanning direcory ~p~n",[BaseDir]),
     filelib:fold_files(BaseDir, ".+\.mp3", true, fun(F, AccIn) ->
@@ -116,15 +142,6 @@ convert_album(Album) ->
 		      end,Album#album.songs),
     {[{<<"_id">>, Id},{type, <<"music">>},{title, utf(Album#album.title)}, {artist, utf(Album#album.artist)}, {year, Album#album.year}, {genre,Album#album.genre}, {songs , Songs}, {comment, ""}, {rating, 0}]}.
 
-utf(B) when is_binary(B) ->
-    unicode:characters_to_binary(binary_to_list(B));
-utf([L]) ->
-    unicode:characters_to_binary(L);
-utf(L) when is_list(L) ->
-    unicode:characters_to_binary(L);
-utf(O) ->
-    O.
-				    
 save_album(Connection,CouchAlbum, Album) ->
     case catch couchc:save_doc(Connection, CouchAlbum) of
 	{ok, Id,Rev} ->
@@ -180,3 +197,19 @@ get_music_record({"ID3v1.1", [{track,Track}, {title,Title},{artist,Artist}, {alb
 
 generate_id(Title, Artist, Album) ->
     {<<"_id">>,list_to_binary(binary_to_list(Artist)++" - "++binary_to_list(Album)++" - "++binary_to_list(Title))}.
+
+
+%%=======================================================================================
+%%  Movie related functions
+%%=======================================================================================
+get_movie_list(BaseDir) ->
+    error_logger:info_msg("Scanning direcory ~p~n",[BaseDir]),
+    filelib:fold_files(BaseDir, ".+\.mpg", true, fun(F, AccIn) ->
+							 AccIn++[F]
+						 end,[]).
+
+convert_movie(M) ->
+    #movie{file = M}.
+
+save_movie(_Db, _Record, _File) ->
+    ok.
